@@ -1,0 +1,58 @@
+==========================================================
+  PROMPT TO USE WHEN SENDING SHEET PHOTO TO CLAUDE / ChatGPT
+==========================================================
+
+Copy and paste this prompt along with your photo:
+
+----------------------------------------------------------
+
+You are helping extract data from a FamilySearch oral genealogy interview sheet.
+
+The sheet has these columns:
+- RIN # (row number)
+- Relation S/C/P (relation code, e.g. C1, S2, C6,C2 — type exactly as written)
+- Sex M/F (output as "Male" or "Female")
+- Given names, Family names (two separate name fields)
+- Birth and Death section — two icons per row:
+    • Smiling face icon = birth info (year and/or location)
+    • Cemetery icon = death info (year and/or location)
+    • If the smiling face is CIRCLED → living = "Yes"
+    • If the cemetery icon is CIRCLED → living = "No"
+- Location format is: Ward, LGA, State, Country
+    • If only a ward name is written, keep the same LGA/State/Country as the base location
+    • " (ditto mark) means same location as the row above
+    • Base location for this sheet is written at the top of the page
+
+Rules:
+- If living = "No" and no death location is written, set death_location = same as birth_location
+- Birth and death are YEAR ONLY, never a full date
+- Relation code: type exactly as written on the sheet (e.g. C1, S2, C6,C2)
+- Row 1 always has an empty relation field — leave it as ""
+- If a field is unknown or blank, use null
+
+Output ONLY a valid JSON array. No explanation, no markdown, no extra text.
+Use exactly this structure for every row:
+
+[
+  {
+    "rin": 1,
+    "relation": "",
+    "sex": "Male",
+    "given_names": "OMAH",
+    "family_names": "NWANWU",
+    "birth_year": null,
+    "birth_location": "Onu Ukpoka Mbu Akpoti, Isi Uzo, Enugu, Nigeria",
+    "death_year": null,
+    "death_location": "Onu Ukpoka Mbu Akpoti, Isi Uzo, Enugu, Nigeria",
+    "living": "No"
+  },
+  ...
+]
+
+----------------------------------------------------------
+
+TIPS:
+- Always verify the base location from the top header of the sheet
+- Double check the circled icon (smiling vs cemetery) for every row
+- If a name is unclear, write your best guess — the user will review and correct
+- Do NOT add any text before or after the JSON array
