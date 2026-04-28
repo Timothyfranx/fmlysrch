@@ -10,15 +10,16 @@ You are helping extract data from a FamilySearch oral genealogy interview sheet.
 
 The sheet has these columns:
 - RIN # (row number)
-- Relation S/C/P (relation code, e.g. C1, S2, C6,C2 — type exactly as written)
+- Relation S/C/P (Relation code. For children with two parents, use the format C1,C2. Always prefix each parent number with 'C')
 - Sex M/F (output as "Male" or "Female")
-- Given names, Family names (two separate name fields)
+- Given names, Family names (two separate name fields. Use SENTENCE CASE, e.g. "Ezinwanne")
 - Birth and Death section — two icons per row:
     • Smiling face icon = birth info (year and/or location)
     • Cemetery icon = death info (year and/or location)
     • If the smiling face is CIRCLED → living = "Yes"
     • If the cemetery icon is CIRCLED → living = "No"
 - Location format is: Ward, LGA, State, Country
+    • Use SENTENCE CASE for all locations
     • If only a ward name is written, keep the same LGA/State/Country as the base location
     • " (ditto mark) means same location as the row above
     • Base location for this sheet is written at the top of the page
@@ -26,9 +27,10 @@ The sheet has these columns:
 Rules:
 - If living = "No" and no death location is written, set death_location = same as birth_location
 - Birth and death are YEAR ONLY, never a full date
-- Relation code: type exactly as written on the sheet (e.g. C1, S2, C6,C2)
+- Relation code: Use the format C1 for one parent or C1,C2 for two parents
 - Row 1 always has an empty relation field — leave it as ""
 - If a field is unknown or blank, use null
+- Formatting: Use Sentence Case for all names and locations
 
 Output ONLY a valid JSON array. No explanation, no markdown, no extra text.
 Use exactly this structure for every row:
@@ -38,8 +40,8 @@ Use exactly this structure for every row:
     "rin": 1,
     "relation": "",
     "sex": "Male",
-    "given_names": "OMAH",
-    "family_names": "NWANWU",
+    "given_names": "Omah",
+    "family_names": "Nwanwu",
     "birth_year": null,
     "birth_location": "Onu Ukpoka Mbu Akpoti, Isi Uzo, Enugu, Nigeria",
     "death_year": null,

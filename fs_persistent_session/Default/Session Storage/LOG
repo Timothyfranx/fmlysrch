@@ -1,6 +1,6 @@
-2026/04/05-05:27:54.920 2b60 Reusing MANIFEST C:\Users\USER\Desktop\power\fs_persistent_session\Default\Session Storage/MANIFEST-000001
-2026/04/05-05:27:54.927 2b60 Recovering log #3
-2026/04/05-05:27:55.022 2b60 Reusing old log C:\Users\USER\Desktop\power\fs_persistent_session\Default\Session Storage/000003.log 
-2026/04/05-05:29:58.587 1dbc Level-0 table #5: started
-2026/04/05-05:29:58.666 1dbc Level-0 table #5: 23193 bytes OK
-2026/04/05-05:29:58.725 1dbc Delete type=0 #3
+2026/04/23-15:07:05.553 1be3 Reusing MANIFEST /home/replytim/Desktop/power/fs_persistent_session/Default/Session Storage/MANIFEST-000001
+2026/04/23-15:07:05.555 1be3 Recovering log #4
+2026/04/23-15:07:05.574 1be3 Reusing old log /home/replytim/Desktop/power/fs_persistent_session/Default/Session Storage/000004.log 
+2026/04/23-15:10:05.577 1be3 Level-0 table #8: started
+2026/04/23-15:10:05.618 1be3 Level-0 table #8: 11746 bytes OK
+2026/04/23-15:10:05.657 1be3 Delete type=0 #4

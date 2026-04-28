@@ -1,3 +1,6 @@
-2026/04/05-05:27:53.394 2b60 Reusing MANIFEST C:\Users\USER\Desktop\power\fs_persistent_session\Default\Local Storage\leveldb/MANIFEST-000001
-2026/04/05-05:27:53.407 2b60 Recovering log #3
-2026/04/05-05:27:53.498 2b60 Reusing old log C:\Users\USER\Desktop\power\fs_persistent_session\Default\Local Storage\leveldb/000003.log 
+2026/04/23-15:06:59.747 1be3 Reusing MANIFEST /home/replytim/Desktop/power/fs_persistent_session/Default/Local Storage/leveldb/MANIFEST-000001
+2026/04/23-15:06:59.756 1be3 Recovering log #3
+2026/04/23-15:06:59.959 1be3 Reusing old log /home/replytim/Desktop/power/fs_persistent_session/Default/Local Storage/leveldb/000003.log 
+2026/04/23-15:07:59.963 1be5 Level-0 table #5: started
+2026/04/23-15:08:00.002 1be5 Level-0 table #5: 31840 bytes OK
+2026/04/23-15:08:00.037 1be5 Delete type=0 #3

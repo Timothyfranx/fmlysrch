@@ -1,5 +1,9 @@
-playwright
-pytesseract
-pillow
-opencv-python
+greenlet
 numpy
+opencv-python
+packaging
+pillow
+playwright
+pyee
+pytesseract
+typing_extensions

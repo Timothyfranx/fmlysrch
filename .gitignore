@@ -1,0 +1,18 @@
+venv/
+__pycache__/
+*.pyc
+fs_session_*/
+familysearch_session_data/
+fs_persistent_session/
+fs_temp_session/
+*.png
+*.jpeg
+*.jpg
+Singleton*
+Unsaved Document 1
+debug_*.png
+diagnose_screenshot.png
+look.png
+1532/
+*.json
+!config.json
