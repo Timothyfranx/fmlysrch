@@ -1,86 +1,118 @@
-# FamilySearch Power Tool Pro — Setup & User Guide
+# 🚀 FamilySearch Power Tool Pro — Beginner's Guide
 
-A high-performance automation tool for bulk-populating FamilySearch Oral Genealogy pedigree forms with built-in data editing and multi-form support.
-
----
-
-## ⚡ Key Features
-- **Turbo Fill Mode**: High-speed data entry with automated login and page navigation.
-- **Multi-Form Automation**: Paste multiple URLs to process them sequentially in separate tabs.
-- **Built-in Data Editor**: A full table view of your JSON data with search and filtering.
-- **Bulk Editing**: Select multiple rows to update family names or locations all at once.
-- **Auto-Matching**: Automatically matches form URLs to JSON files based on the 4-digit ID (e.g., `1205.json` for a URL ending in `1205`).
+This tool is a high-performance automation assistant designed to help you fill out FamilySearch Oral Genealogy pedigree forms quickly and accurately. It includes a built-in editor to fix your data before pushing it to the website.
 
 ---
 
-## 🛠️ One-Time Setup
+## 📋 Table of Contents
+1. [Prerequisites](#-prerequisites)
+2. [Installation (Step-by-Step)](#-installation-step-by-step)
+3. [Configuration](#-configuration)
+4. [How to Use the App](#-how-to-use-the-app)
+5. [JSON Utility Tools (Fixing Broken Data)](#-json-utility-tools-fixing-broken-data)
+6. [Security & Troubleshooting](#-security--troubleshooting)
 
-### 1. Install Dependencies
-Ensure you are using the virtual environment:
+---
 
-**Windows:**
+## 🛠 Prerequisites
+Before you start, make sure you have the following installed on your computer:
+- **Python 3.12 or higher**: Download it from [python.org](https://www.python.org/downloads/). 
+  - *Crucial for Windows Users*: When installing, check the box that says **"Add Python to PATH"**.
+- **Internet Connection**: Required for the initial setup and to access FamilySearch.
+
+---
+
+## 🚀 Installation (Step-by-Step)
+
+### 1. Open your Terminal or Command Prompt
+- **Windows**: Search for `cmd` or `PowerShell` in the Start menu.
+- **Mac/Linux**: Open the `Terminal` app.
+
+### 2. Navigate to the project folder
+Use the `cd` command to move into the folder where you downloaded this tool:
 ```bash
+cd path/to/this/folder
+```
+
+### 3. Create a Virtual Environment (Highly Recommended)
+This keeps the tool's files separate from the rest of your computer.
+```bash
+# Windows
+python -m venv venv
 .\venv\Scripts\activate
-pip install -r requirements.txt
-```
 
-**Linux/macOS:**
-```bash
+# Mac/Linux
+python3 -m venv venv
 source venv/bin/activate
+```
+
+### 4. Install the requirements
+Run this command to install all the necessary "brain" components for the tool:
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Install Playwright Browsers
+### 5. Install the Browser Driver
+The tool uses a special version of Chrome to fill the forms. Install it with:
 ```bash
 playwright install chromium
 ```
 
 ---
 
-## 🚀 Running the App
+## ⚙️ Configuration
 
-Run the application using the virtual environment:
+Your settings are stored in `config.json`. 
+- **⚠️ IMPORTANT**: Do **NOT** share your `config.json` with anyone if you are uploading this code to GitHub. It contains your FamilySearch password in plain text.
+- The tool will automatically create this file for you the first time you enter your login details in the app.
 
-**Windows:**
+---
+
+## 📖 How to Use the App
+
+### 1. Prepare your JSON Data
+- Each form has a 4-digit ID at the end of its URL (e.g., `https://.../0727`).
+- Name your data file to match that ID (e.g., `0727.json`).
+- Place all `.json` files in the same folder as `app.py`.
+
+### 2. Launch the App
 ```bash
-.\venv\Scripts\python.exe app.py
+# Windows
+python app.py
+
+# Mac/Linux
+python3 app.py
 ```
 
-**Linux/macOS:**
+### 3. Load Data & Start Filling
+1. **Automation Tab**: Paste your FamilySearch URLs into the big text box (one per line).
+2. **Login**: Enter your FamilySearch username and password.
+3. **Sync**: Click **"🔄 SYNC"**. This connects your URLs to your JSON files.
+4. **Nitro Fill**: Click **"🚀 START NITRO FILL"**. A browser will open and start typing for you!
+
+---
+
+## 🛠 JSON Utility Tools (Fixing Broken Data)
+
+If you have a JSON file that is "broken" or has syntax errors, I have included two special scripts to help:
+
+### 1. Repair Broken JSON (`json_repair.py`)
+If your JSON file has extra brackets, missing commas, or was copied incorrectly, run this to surgically recover the data:
 ```bash
-./venv/bin/python app.py
+python3 json_repair.py 0727.json
+```
+
+### 2. Format/Clean JSON (`json_formatter.py`)
+If your JSON is valid but looks messy and hard to read, run this to make it pretty and sorted:
+```bash
+python3 json_formatter.py 0727.json
 ```
 
 ---
 
-## 📖 How to Use
+## ⚠️ Security & Troubleshooting
 
-### Step 1: Prepare Your Data
-- Name your JSON data files using the 4-digit ID found at the end of your FamilySearch form URLs (e.g., `1205.json`, `002.json`).
-- Place these files in the same directory as `app.py`.
-
-### Step 2: Load and Sync
-1. Open the app and paste your **Form URLs** into the text box (one per line).
-2. Enter your FamilySearch **Username** and **Password**.
-3. Click **"🔄 STEP 1: LOAD & SYNC DATA"**.
-4. The app will verify your JSON files exist and populate the **Data Editor** tab.
-
-### Step 3: Review and Edit (Optional)
-1. Switch to the **"Data Editor"** tab.
-2. Use the **Search** box to find specific people or families.
-3. **Double-click** any cell to edit data manually.
-4. **Bulk Edit**: Select multiple rows (Ctrl/Shift + Click), click "Bulk Edit", choose a column, and apply a value to all selected rows.
-5. Click **"Save Changes to File"** if you want to update your JSON files permanently.
-
-### Step 4: Start Automation
-1. Go back to the **"Automation"** tab.
-2. Click **"🚀 STEP 2: START TURBO FILL"**.
-3. A browser window will open. The script will log in and begin filling each form one by one.
-4. **DO NOT** close the browser. Once finished, the status will show "Done!", and you can review the work before manually closing the browser.
-
----
-
-## ⚠️ Safety Notes
-- **Login Security**: Your credentials are saved locally in `config.json` for convenience. They are never sent to any server other than FamilySearch.
-- **Browser Lock**: If the browser fails to open, ensure no other instance of the app is running and try again.
-- **Error 15**: If the website blocks the browser, wait a few minutes or try logging in manually in the window that appears.
+- **"ModuleNotFoundError"**: This means you skipped Step 4 of the installation. Run `pip install -r requirements.txt`.
+- **"Playwright not found"**: This means you skipped Step 5. Run `playwright install chromium`.
+- **Login Blocks**: If FamilySearch blocks you with a "security check," simply solve the puzzle in the automated browser window, and the script will continue automatically.
+- **Privacy**: I have updated the `.gitignore` file so that your `config.json` (with your password) will **NEVER** be pushed to GitHub accidentally.

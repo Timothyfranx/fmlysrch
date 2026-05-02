@@ -14,5 +14,4 @@ debug_*.png
 diagnose_screenshot.png
 look.png
 1532/
-*.json
-!config.json
+config.json

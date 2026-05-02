@@ -1,9 +1,9 @@
-greenlet
-numpy
-opencv-python
-packaging
-pillow
 playwright
-pyee
+opencv-python
+pillow
 pytesseract
+numpy
+packaging
+pyee
 typing_extensions
+greenlet
