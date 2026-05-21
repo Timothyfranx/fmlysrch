@@ -108,27 +108,47 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
             if login_needed:
                 log("✍️ Auto-login triggered instantly...")
                 try:
+                    # Dismiss cookie banner if it blocks inputs
+                    try:
+                        cookie_btn = page.locator('#truste-consent-button, button:has-text("Accept All"), button:has-text("Accept Cookies"), .cookie-consent-button').first
+                        if cookie_btn.is_visible(timeout=2000):
+                            cookie_btn.click()
+                            log("🍪 Dismissed cookie consent banner.")
+                    except:
+                        pass
+
                     # Target username field more aggressively
                     u_field = page.locator('#userName, #username, [name="username"]').first
                     u_field.wait_for(state="visible", timeout=10000)
                     u_field.click()
-                    u_field.fill("") # Standard clear
-                    page.keyboard.press("Control+A") # Backup clear
-                    page.keyboard.press("Backspace")
-                    u_field.type(username, delay=30)
+                    try:
+                        u_field.fill(username)
+                    except:
+                        # Fallback clear and type
+                        u_field.fill("")
+                        page.keyboard.press("Control+A")
+                        page.keyboard.press("Backspace")
+                        u_field.type(username, delay=30)
 
                     # Check for Next button (two-step login)
-                    next_btn = page.locator('button:has-text("Next"), #login-next, button:has-text("Continue"), button[type="submit"]')
-                    if next_btn.is_visible(timeout=2000):
-                        next_btn.click()
-                        time.sleep(1)
+                    # We only click next/continue if password field is not visible yet!
+                    p_field = page.locator('#password, [name="password"]').first
+                    if not p_field.is_visible(timeout=2000):
+                        next_btn = page.locator('button:has-text("Next"), #login-next, button:has-text("Continue")').first
+                        if next_btn.is_visible(timeout=2000):
+                            next_btn.click()
+                            log("➡️ Clicked login Next button...")
+                            time.sleep(1.5)
 
                     # Target password field
-                    p_field = page.locator('#password, [name="password"]').first
                     p_field.wait_for(state="visible", timeout=10000)
                     p_field.click()
-                    p_field.fill("")
-                    p_field.type(password, delay=30)
+                    try:
+                        p_field.fill(password)
+                    except:
+                        # Fallback clear and type
+                        p_field.fill("")
+                        p_field.type(password, delay=30)
 
                     # Final submit
                     submit_btn = page.locator('button[type="submit"], #login, #login-submit').first
@@ -599,6 +619,10 @@ class App(tk.Tk):
         self.e_prof.pack(side="left", padx=5)
         self.e_prof.insert(0, self.cfg.get("profile", "1"))
 
+        r2 = tk.Frame(group1, bg=BG)
+        r2.pack(fill="x", pady=(8, 0))
+        tk.Button(r2, text="🧹 CLEAR CURRENT SESSION CACHE", command=self._clean_session_cache, bg=DANGER, fg="#fff", font=("Segoe UI", 9, "bold")).pack(side="left")
+
         group2 = tk.LabelFrame(frame, text=" Target URLs ", bg=BG, fg=ACCENT, padx=15, pady=10)
         group2.pack(fill="both", expand=True, pady=(0, 15))
         self.txt_urls = scrolledtext.ScrolledText(group2, bg=CARD, fg=TEXT, height=5, font=("Consolas", 10))
@@ -886,6 +910,26 @@ class App(tk.Tk):
 
     def _log(self, m):
         self.after(0, lambda: self.auto_log.insert(tk.END, f"> {m}\n") or self.auto_log.see(tk.END))
+
+    def _clean_session_cache(self):
+        profile = self.e_prof.get().strip() or "1"
+        import shutil
+        deleted = []
+        for worker_idx in (1, 2):
+            session_dir = os.path.abspath(f"fs_session_p{profile}_w{worker_idx}")
+            if os.path.exists(session_dir):
+                try:
+                    shutil.rmtree(session_dir)
+                    deleted.append(os.path.basename(session_dir))
+                except Exception as e:
+                    self._log(f"⚠️ Error deleting {session_dir}: {e}")
+        
+        if deleted:
+            messagebox.showinfo("Success", f"Cleared session cache for Profile {profile}:\n" + "\n".join(deleted))
+            self._log(f"🧹 Cleared session cache for Profile {profile}: {', '.join(deleted)}")
+        else:
+            messagebox.showinfo("Info", f"No active session cache directories found for Profile {profile} to clean.")
+            self._log(f"🧹 No active session cache directories found for Profile {profile}.")
 
     def _skip_wait(self):
         self.skip_wait_event.set()
