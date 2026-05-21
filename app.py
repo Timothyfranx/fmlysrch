@@ -56,36 +56,51 @@ def json_to_rows(data):
 
 # --- AUTOMATION LOGIC ---
 
-def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, profile_id):
+def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, profile_id, fill_settings):
     def log(msg): status_cb(f"[{fid}] {msg}")
 
     try:
         with sync_playwright() as p:
-            session_dir = os.path.abspath(f"fs_session_prof_{profile_id}_{worker_idx}")
+            session_dir = os.path.abspath(f"fs_session_p{profile_id}_w{worker_idx}")
             log(f"🚀 Worker {worker_idx} starting...")
-            
+
             browser_context = p.chromium.launch_persistent_context(
-                session_dir, headless=False, slow_mo=10,
-                viewport={'width': 1280, 'height': 650},
+                session_dir, headless=False, slow_mo=0,
+                viewport={'width': 1280, 'height': 700},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                args=['--disable-blink-features=AutomationControlled']
+                args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
             )
             page = browser_context.pages[0]
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
+
             log("🌐 Opening URL...")
-            page.goto(url, wait_until="commit")
             
+            # Navigation retry loop for network resilience
+            max_nav_retries = 3
+            for nav_attempt in range(max_nav_retries):
+                try:
+                    page.goto(url, wait_until="commit", timeout=90000)
+                    break 
+                except Exception as e:
+                    if nav_attempt < max_nav_retries - 1:
+                        log(f"⚠️ Network blip (Attempt {nav_attempt+1}). Retrying in 5s...")
+                        time.sleep(5)
+                    else:
+                        raise e
+
+            # Adaptive wait for the page to render
             try:
-                page.wait_for_load_state("networkidle", timeout=8000)
+                page.wait_for_load_state("domcontentloaded", timeout=30000)
             except:
                 pass
-            time.sleep(2)
-            
-            # Login check
+
+            log("⏳ Waiting 2 minutes for you to check login/session...")
+            time.sleep(120)
+
+            # Login check - fast check first
             login_needed = False
             try:
-                if "login" in page.url or page.locator('#userName, #username').is_visible(timeout=1500):
+                if "login" in page.url.lower() or page.locator('#userName, #username, [name="username"]').is_visible(timeout=2000):
                     login_needed = True
             except:
                 pass
@@ -93,134 +108,299 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
             if login_needed:
                 log("✍️ Auto-login...")
                 try:
-                    page.fill('#userName, #username', username, timeout=8000)
-                    page.fill('#password', password)
-                    page.click('button[type="submit"], #login')
-                    time.sleep(8)
-                except: 
-                    log("⚠️ Login screen active. Finish manually...")
-                    time.sleep(15)
+                    # Target username field more aggressively
+                    u_field = page.locator('#userName, #username, [name="username"]').first
+                    u_field.wait_for(state="visible", timeout=10000)
+                    u_field.click()
+                    u_field.fill("") # Standard clear
+                    page.keyboard.press("Control+A") # Backup clear
+                    page.keyboard.press("Backspace")
+                    u_field.type(username, delay=30)
+
+                    # Check for Next button (two-step login)
+                    next_btn = page.locator('button:has-text("Next"), #login-next, button:has-text("Continue"), button[type="submit"]')
+                    if next_btn.is_visible(timeout=2000):
+                        next_btn.click()
+                        time.sleep(1)
+
+                    # Target password field
+                    p_field = page.locator('#password, [name="password"]').first
+                    p_field.wait_for(state="visible", timeout=10000)
+                    p_field.click()
+                    p_field.fill("")
+                    p_field.type(password, delay=30)
+
+                    # Final submit
+                    submit_btn = page.locator('button[type="submit"], #login, #login-submit').first
+                    submit_btn.click()
+
+                    log("⌛ Redirecting...")
+                    try:
+                        page.wait_for_url(lambda u: "login" not in u.lower(), timeout=25000)
+                    except:
+                        pass
+                    
+                    # Force return to target URL after login
+                    log("🔄 Returning to Form...")
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:
+                    log(f"⚠️ Login error. Finish manually...")
+                    time.sleep(10)
 
             log("🔍 Scanning form...")
             try:
-                page.wait_for_selector('input[placeholder*="Given Name"]', timeout=30000)
+                # Wait for specific form inputs
+                page.wait_for_selector('input[placeholder*="Given Name"]', timeout=60000)
                 log("✅ Ready.")
             except:
-                log("❌ Form not found.")
-                browser_context.close()
-                return
+                log("❌ Form not found. Trying one more time...")
+                page.goto(url, wait_until="domcontentloaded")
+                time.sleep(5)
 
             data_map = {str(r[0]): r for r in rows}
             filled_rins = set()
             
-            for p_idx in range(50):
-                anchors = page.locator('input[placeholder*="Given Name"]').all()
-                if not anchors: 
-                    break
+            for p_idx in range(100):
+                # Retry loop for page content
+                anchors = []
+                for _ in range(3):
+                    anchors = page.locator('input[placeholder*="Given Name"]').all()
+                    if anchors: break
+                    time.sleep(2)
                 
-                log(f"📄 Page {p_idx+1}: Filling rows...")
-                
-                for inp in anchors:
-                    try:
-                        container = inp.locator('xpath=ancestor::div[role="row"][1] | ancestor::tr[1] | ancestor::div[contains(@class,"row")][1]').first
-                        if not container.count():
-                            continue
+                if not anchors:
+                    log("⚠️ No records on page. Checking for Next...")
+                    page_modified = False
+                else:
+                    # Check if this page contains any RINs we actually need
+                    body_text = page.locator('body').text_content()
+                    needed_on_this_page = any(rin in body_text for rin in data_map if rin not in filled_rins)
+                    
+                    if not needed_on_this_page:
+                        log(f"⏭️ Skipping Page {p_idx+1} (No target RINs found)...")
+                        page_modified = False
+                    else:
+                        log(f"📄 Page {p_idx+1}: Filling rows...")
+                        page_modified = False
                         
-                        # Use text_content for max speed (no reflow)
-                        combined_text = container.text_content()
-                        nums = re.findall(r'\d+', combined_text)
-                        
-                        rin = None
-                        for n in nums:
-                            if n in data_map and n not in filled_rins:
-                                rin = n
-                                break
-                        
-                        if not rin:
-                            continue
+                        for inp in anchors:
+                            try:
+                                container = inp.locator('xpath=ancestor::div[role="row"][1] | ancestor::tr[1] | ancestor::div[contains(@class,"row")][1]').first
+                                if not container.count():
+                                    continue
+                                
+                                combined_text = container.text_content()
+                                nums = re.findall(r'\d+', combined_text)
+                                
+                                rin = None
+                                for n in nums:
+                                    if n in data_map and n not in filled_rins:
+                                        rin = n
+                                        break
+                                
+                                if not rin:
+                                    continue
 
-                        r_data = data_map[rin]
-                        _, rel, sex, living, given, family, b_yr, b_loc, d_yr, d_loc = r_data
-                        
-                        # RELATION
-                        if rel:
-                            r_field = container.locator('input[placeholder*="Relation"]').first
-                            if r_field.count() == 0:
-                                r_field = container.locator('input').nth(0)
-                            if r_field.count():
-                                r_field.fill(str(rel))
-                                r_field.press("Tab")
+                                r_data = data_map[rin]
+                                _, rel, sex, living, given, family, b_yr, b_loc, d_yr, d_loc = r_data
+                                
+                                # RELATION
+                                if rel and fill_settings.get("relation"):
+                                    r_field = container.locator('input[placeholder*="Relation"]').first
+                                    if r_field.count() == 0:
+                                        r_field = container.locator('input').nth(0)
+                                    if r_field.count():
+                                        r_field.fill(str(rel))
+                                        r_field.press("Tab")
+                                        page_modified = True
 
-                        # SEX
-                        if sex:
-                            s_field = container.locator('select, [aria-label*="Sex"]').first
-                            if s_field.count():
-                                try:
-                                    s_field.select_option(label=sex)
-                                except:
-                                    pass
+                                # SEX
+                                if sex and fill_settings.get("sex"):
+                                    s_field = container.locator('select, [aria-label*="Sex"]').first
+                                    if s_field.count():
+                                        try:
+                                            s_field.select_option(label=sex)
+                                            page_modified = True
+                                        except:
+                                            pass
 
-                        # NAMES & VITALS
-                        inp.fill(str(given or ""))
-                        if family:
-                            f_field = container.locator('input[placeholder*="Family"]').first
-                            if f_field.count():
-                                f_field.fill(str(family))
-                        
-                        if b_yr:
-                            by_field = container.locator('input[placeholder*="Birth Date"]').first
-                            if by_field.count():
-                                by_field.fill(str(b_yr))
-                        
-                        if b_loc:
-                            bl_field = container.locator('input[placeholder*="Ward"], input[placeholder*="Place"]').first
-                            if bl_field.count():
-                                bl_field.fill(str(b_loc))
-                                page.keyboard.press("Enter")
-                        
-                        # LIVING
-                        if living:
-                            l_val = "Yes" if str(living).lower() == "yes" else "No"
-                            l_field = container.locator('[aria-label*="Living"], select').last
-                            if l_field.count():
-                                try:
-                                    l_field.select_option(label=l_val)
-                                except:
-                                    pass
+                                # NAMES
+                                if fill_settings.get("names"):
+                                    if given:
+                                        inp.fill(str(given))
+                                        page_modified = True
+                                    if family:
+                                        f_field = container.locator('input[placeholder*="Family"]').first
+                                        if f_field.count():
+                                            f_field.fill(str(family))
+                                            page_modified = True
+                                
+                                # BIRTH
+                                if fill_settings.get("birth"):
+                                    if b_yr:
+                                        by_field = container.locator('input[placeholder*="Birth Date"]').first
+                                        if by_field.count():
+                                            by_field.fill(str(b_yr))
+                                            page_modified = True
+                                    if b_loc:
+                                        bl_field = container.locator('input[placeholder*="Ward"], input[placeholder*="Place"]').first
+                                        if bl_field.count():
+                                            bl_field.fill(str(b_loc))
+                                            page.keyboard.press("Enter")
+                                            page_modified = True
+                                
+                                # LIVING & DEATH
+                                is_dead = str(living).lower() == "no" or bool(d_yr) or bool(d_loc)
+                                should_set_living = fill_settings.get("living") or (is_dead and fill_settings.get("death"))
 
-                        if str(living).lower() == "no" and d_yr:
-                            dy_field = container.locator('input[placeholder*="Death Date"]').first
-                            if dy_field.count():
-                                dy_field.fill(str(d_yr))
+                                # 1. Handle Living Status - only change if not already "No"
+                                if (living or is_dead) and should_set_living:
+                                    l_val = "No" if is_dead else "Yes"
+                                    l_field = container.locator('select[aria-label*="Living"], select').last
+                                    if l_field.count():
+                                        try:
+                                            current_val = l_field.evaluate("el => el.value")
+                                            target_val = "n" if l_val == "No" else "y"
+                                            if current_val != target_val:
+                                                l_field.select_option(label=l_val)
+                                                l_field.evaluate("el => { el.dispatchEvent(new Event('change', {bubbles: true})); el.dispatchEvent(new Event('input', {bubbles: true})); }")
+                                                page_modified = True
+                                                if l_val == "No":
+                                                    # Wait for death sub-row to appear in DOM
+                                                    time.sleep(2.0)
+                                        except:
+                                            pass
 
-                        filled_rins.add(rin)
-                    except:
-                        pass
+                                # 2. Fill Death Data
+                                if is_dead and fill_settings.get("death"):
+                                    try:
+                                        log(f"📍 Filling Death for RIN {rin}...")
+                                        # Use JS to find and focus the correct death inputs in the sibling rows
+                                        # We return the index/selector or just focus it directly in JS
+                                        focused = page.evaluate("""
+                                            (givenName) => {
+                                                // 1. Find the main row
+                                                let mainRow = null;
+                                                const allInputs = Array.from(document.querySelectorAll('input'));
+                                                for (const inp of allInputs) {
+                                                    if ((inp.placeholder || '').toLowerCase().includes('given') && 
+                                                        inp.value.toLowerCase().includes(givenName.toLowerCase())) {
+                                                        mainRow = inp.closest('[role="row"], tr, .row');
+                                                        if (mainRow) break;
+                                                    }
+                                                }
+                                                if (!mainRow) return false;
+
+                                                // 2. Scan siblings for death fields
+                                                let sib = mainRow.nextElementSibling;
+                                                for (let i = 0; i < 3 && sib; i++) {
+                                                    const dInputs = Array.from(sib.querySelectorAll('input'));
+                                                    const dDate = dInputs.find(inp => (inp.placeholder || '').toLowerCase().includes('date') || (inp.placeholder || '').toLowerCase().includes('year'));
+                                                    const dPlace = dInputs.find(inp => (inp.placeholder || '').toLowerCase().includes('place') || (inp.placeholder || '').toLowerCase().includes('ward'));
+                                                    
+                                                    if (dDate || dPlace) {
+                                                        // We'll focus the first one we need to fill and return metadata
+                                                        return { found: true, dateId: !!dDate, placeId: !!dPlace };
+                                                    }
+                                                    sib = sib.nextElementSibling;
+                                                }
+                                                return { found: false };
+                                            }
+                                        """, str(given) if given else "")
+
+                                        if focused and focused.get('found'):
+                                            # Now we use Playwright locators to find and type
+                                            # This is much more reliable than direct value setting
+                                            sib_indices = [1, 2, 3] # Check next 3 siblings
+                                            for idx in sib_indices:
+                                                death_row = container.locator(f'xpath=following-sibling::div[{idx}] | following-sibling::tr[{idx}]').first
+                                                if death_row.count():
+                                                    d_date_field = death_row.locator('input[placeholder*="Date"], input[placeholder*="Year"]').first
+                                                    d_place_field = death_row.locator('input[placeholder*="Place"], input[placeholder*="Ward"]').first
+                                                    
+                                                    if d_date_field.count() or d_place_field.count():
+                                                        if d_yr and d_date_field.count():
+                                                            d_date_field.click()
+                                                            page.keyboard.press("Control+A")
+                                                            page.keyboard.press("Backspace")
+                                                            # Faster typing for speed, but still using keyboard to trigger site JS
+                                                            page.keyboard.type(str(d_yr), delay=10)
+                                                            page_modified = True
+                                                        
+                                                        if d_loc and d_place_field.count():
+                                                            d_place_field.click()
+                                                            page.keyboard.press("Control+A")
+                                                            page.keyboard.press("Backspace")
+                                                            page.keyboard.type(str(d_loc), delay=10)
+                                                            time.sleep(0.3)
+                                                            page.keyboard.press("Enter")
+                                                            page_modified = True
+                                                        break
+                                    except Exception as e:
+                                        log(f"⚠️ Death fill failed for {rin}: {str(e)[:40]}")
+                                filled_rins.add(rin)
+                            except:
+                                pass
 
                 # SAVE
-                log("💾 Saving page...")
-                page.evaluate("window.scrollTo(0, 0)")
-                save_btn = page.locator('header a:text-is("SAVE"), button:text-is("SAVE")').first
-                if save_btn.count():
-                    save_btn.click(no_wait_after=True)
-                else:
-                    fallback_save = page.locator('button:has-text("SAVE")').first
-                    if fallback_save.count():
-                        fallback_save.click(no_wait_after=True)
-                time.sleep(1.5)
+                if page_modified:
+                    log("💾 Saving...")
+                    page.evaluate("window.scrollTo(0, 0)")
+                    save_btn = page.locator('header a:text-is("SAVE"), button:text-is("SAVE"), button:has-text("SAVE")').first
+                    if save_btn.count():
+                        save_btn.click(no_wait_after=True)
+                    time.sleep(0.5)
 
-                # NEXT PAGE
+                # NEXT PAGE - BOTTOM-FIRST STRATEGY
+                # 1. Scroll to bottom to check for form extension (Priority)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                next_btn = page.locator('button:has-text("PAGE"):not(:has-text("DELETE")), button:has-text("NEXT PAGE")').last
-                if next_btn.count() and next_btn.is_enabled():
-                    next_btn.click()
-                    time.sleep(2) 
+                time.sleep(1.0) # Grace period for rendering
+
+                # Look for BEGIN NEW PAGE
+                new_pg_btn = page.locator('button:has-text("BEGIN"), button:has-text("NEW PAGE")').last
+                
+                clicked_new = False
+                if new_pg_btn.count() and new_pg_btn.is_enabled():
+                    log("🆕 Clicking BEGIN NEW PAGE...")
+                    try:
+                        # Tier 1: Standard Click
+                        new_pg_btn.click(timeout=3000)
+                        clicked_new = True
+                    except:
+                        # Tier 2: JavaScript Force Click (The Nuclear Option)
+                        log("⚠️ Standard click failed, forcing via JS...")
+                        page.evaluate("""() => {
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            const target = btns.find(b => b.innerText.includes('BEGIN') || b.innerText.includes('NEW PAGE'));
+                            if (target) target.click();
+                        }""")
+                        clicked_new = True
+                
+                if clicked_new:
+                    time.sleep(2.0)
                 else:
-                    arrow = page.locator('i.icon-chevron-right').last
-                    if arrow.count():
-                        arrow.click()
-                        time.sleep(2)
+                    # 2. Scroll to top to check for existing page navigation
+                    page.evaluate("window.scrollTo(0, 0)")
+                    time.sleep(0.5)
+                    
+                    next_page_num = p_idx + 2
+                    num_btn = page.locator(f'button:text-is("PAGE {next_page_num}"), a:text-is("PAGE {next_page_num}"), button:text-is("{next_page_num}"), a:text-is("{next_page_num}")').first
+                    arrow_next = page.locator(
+                        'button[aria-label*="next" i]:not([disabled]), button[title*="next" i]:not([disabled]), ' 
+                        'a[aria-label*="next" i], a[title*="next" i], ' 
+                        'button:text-is(">"):not([disabled]), a:text-is(">"):not([disabled])' 
+                    ).first
+
+                    if num_btn.count() and num_btn.is_enabled():
+                        log(f"➡️ Page {next_page_num}")
+                        num_btn.click()
+                        time.sleep(1.0)
+                    elif arrow_next.count() and arrow_next.is_enabled():
+                        log("➡️ Next existing page (arrow)")
+                        arrow_next.click()
+                        time.sleep(1.0)
                     else:
+                        log("🏁 Finished — no navigation options left.")
                         break
 
             log(f"✅ FINISHED {fid}")
@@ -270,7 +450,7 @@ class App(tk.Tk):
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab", background=CARD, foreground=MUTED, padding=[15, 5], font=("Segoe UI", 10))
         style.map("TNotebook.Tab", background=[("selected", ACCENT)], foreground=[("selected", BG)])
-        style.configure("Treeview", background=CARD, foreground=TEXT, fieldbackground=CARD, rowheight=30, borderwidth=0, font=("Segoe UI", 10))
+        style.configure("Treeview", background=CARD, foreground=TEXT, fieldbackground=CARD, rowheight=28, borderwidth=0, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", background="#0f172a", foreground=ACCENT, font=("Segoe UI", 10, "bold"))
         style.map("Treeview", background=[("selected", "#334155")])
 
@@ -334,6 +514,26 @@ class App(tk.Tk):
         self.txt_urls = scrolledtext.ScrolledText(group2, bg=CARD, fg=TEXT, height=5, font=("Consolas", 10))
         self.txt_urls.pack(fill="both", expand=True)
         
+        group3 = tk.LabelFrame(frame, text=" Field Selection ", bg=BG, fg=ACCENT, padx=15, pady=10)
+        group3.pack(fill="x", pady=(0, 15))
+        
+        self.fill_vars = {
+            "relation": tk.BooleanVar(value=True),
+            "sex": tk.BooleanVar(value=True),
+            "names": tk.BooleanVar(value=True),
+            "birth": tk.BooleanVar(value=True),
+            "living": tk.BooleanVar(value=True),
+            "death": tk.BooleanVar(value=True)
+        }
+        
+        c_frame = tk.Frame(group3, bg=BG)
+        c_frame.pack(fill="x")
+        
+        for i, (key, var) in enumerate(self.fill_vars.items()):
+            cb = tk.Checkbutton(c_frame, text=key.upper(), variable=var, bg=BG, fg=TEXT, 
+                                selectcolor=CARD, activebackground=BG, activeforeground=ACCENT)
+            cb.pack(side="left", padx=5)
+
         action_row = tk.Frame(frame, bg=BG)
         action_row.pack(fill="x", pady=5)
         
@@ -380,9 +580,25 @@ class App(tk.Tk):
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        
+        # Column widths
+        widths = {
+            "RIN": 60,
+            "Relation": 180,
+            "Given Names": 180,
+            "Family Names": 150,
+            "Birth Location": 250,
+            "Death Location": 250,
+            "Sex": 80,
+            "Living": 80,
+            "Birth Year": 100,
+            "Death Year": 100
+        }
+        
         for c in COLS:
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=100)
+            self.tree.column(c, width=widths.get(c, 100), minwidth=50)
+        
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
@@ -567,7 +783,7 @@ class App(tk.Tk):
             self._refresh_table()
             self.btn_run.config(state="normal", bg=SUCCESS)
 
-    def _on_form_switch(self, e): 
+    def _on_form_switch(self, e):
         self.current_fid = self.form_sel.get()
         self._refresh_table()
 
@@ -578,11 +794,14 @@ class App(tk.Tk):
         user, pwd, prof = self.e_user.get(), self.e_pass.get(), self.e_prof.get()
         self.cfg["username"], self.cfg["password"], self.cfg["profile"] = user, pwd, prof
         save_config(self.cfg)
+        
+        fill_settings = {k: v.get() for k, v in self.fill_vars.items()}
+        
         def worker():
             try:
                 active = [(fid, rows) for fid, rows in self.all_data.items() if fid in self.all_urls]
                 with ThreadPoolExecutor(max_workers=2) as ex:
-                    futures = [ex.submit(fill_form_logic, fid, self.all_urls[fid], user, pwd, rows, self._log, i+1, prof) for i, (fid, rows) in enumerate(active)]
+                    futures = [ex.submit(fill_form_logic, fid, self.all_urls[fid], user, pwd, rows, self._log, i+1, prof, fill_settings) for i, (fid, rows) in enumerate(active)]
                     for f in futures:
                         f.result()
             except Exception as e:
