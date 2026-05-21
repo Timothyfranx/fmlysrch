@@ -53,9 +53,20 @@ def clean_genealogy_json(file_path, overwrite=False):
         print(f"  - Deceased individuals fixed: {deceased_fixed}")
         print(f"  - Saved to: {output_path}")
         print("-" * 30)
+        
+        return {
+            "success": True,
+            "living_fixed": living_fixed,
+            "deceased_fixed": deceased_fixed,
+            "output_path": output_path
+        }
 
     except Exception as e:
         print(f"Failed to process {file_path}: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 def main():
     parser = argparse.ArgumentParser(description="Clean genealogy JSON files based on living/deceased rules.")
