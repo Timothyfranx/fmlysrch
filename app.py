@@ -121,23 +121,34 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
                     u_field = page.locator('#userName, #username, [name="username"]').first
                     u_field.wait_for(state="visible", timeout=10000)
                     u_field.click()
-                    u_field.fill("") # Standard clear
-                    page.keyboard.press("Control+A") # Backup clear
-                    page.keyboard.press("Backspace")
-                    u_field.type(username, delay=30)
+                    try:
+                        u_field.fill(username)
+                    except:
+                        # Fallback clear and type
+                        u_field.fill("")
+                        page.keyboard.press("Control+A")
+                        page.keyboard.press("Backspace")
+                        u_field.type(username, delay=30)
 
                     # Check for Next button (two-step login)
-                    next_btn = page.locator('button:has-text("Next"), #login-next, button:has-text("Continue"), button[type="submit"]')
-                    if next_btn.is_visible(timeout=2000):
-                        next_btn.click()
-                        time.sleep(1)
+                    # We only click next/continue if password field is not visible yet!
+                    p_field = page.locator('#password, [name="password"]').first
+                    if not p_field.is_visible(timeout=2000):
+                        next_btn = page.locator('button:has-text("Next"), #login-next, button:has-text("Continue")').first
+                        if next_btn.is_visible(timeout=2000):
+                            next_btn.click()
+                            log("➡️ Clicked login Next button...")
+                            time.sleep(1.5)
 
                     # Target password field
-                    p_field = page.locator('#password, [name="password"]').first
                     p_field.wait_for(state="visible", timeout=10000)
                     p_field.click()
-                    p_field.fill("")
-                    p_field.type(password, delay=30)
+                    try:
+                        p_field.fill(password)
+                    except:
+                        # Fallback clear and type
+                        p_field.fill("")
+                        p_field.type(password, delay=30)
 
                     # Final submit
                     submit_btn = page.locator('button[type="submit"], #login, #login-submit').first
