@@ -59,7 +59,7 @@ def json_to_rows(data):
 
 # --- AUTOMATION LOGIC ---
 
-def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, profile_id, fill_settings):
+def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, profile_id, fill_settings, skip_wait_event=None):
     def log(msg): status_cb(f"[{fid}] {msg}")
 
     try:
@@ -97,19 +97,16 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
             except:
                 pass
 
-            log("⏳ Waiting 2 minutes for you to check login/session...")
-            time.sleep(120)
-
-            # Login check - fast check first
+            # --- DYNAMIC/CLEAN AUTO-LOGIN CHECK FIRST ---
             login_needed = False
             try:
-                if "login" in page.url.lower() or page.locator('#userName, #username, [name="username"]').is_visible(timeout=2000):
+                if "login" in page.url.lower() or page.locator('#userName, #username, [name="username"]').is_visible(timeout=3000):
                     login_needed = True
             except:
                 pass
 
             if login_needed:
-                log("✍️ Auto-login...")
+                log("✍️ Auto-login triggered instantly...")
                 try:
                     # Target username field more aggressively
                     u_field = page.locator('#userName, #username, [name="username"]').first
@@ -147,8 +144,14 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
                     log("🔄 Returning to Form...")
                     page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as e:
-                    log(f"⚠️ Login error. Finish manually...")
-                    time.sleep(10)
+                    log(f"⚠️ Auto-login failed: {e}. Adjust manually during wait period...")
+
+            # --- PERSISTENT USER ADJUSTMENT BUFFER ---
+            log("⏳ Waiting up to 120s for manual adjustments. Click '⏭️ SKIP WAIT' to start filling immediately.")
+            if skip_wait_event:
+                skip_wait_event.wait(timeout=120)
+            else:
+                time.sleep(120)
 
             log("🔍 Scanning form...")
             try:
@@ -428,6 +431,7 @@ class App(tk.Tk):
         self._search_timer = None
         self.undo_stack = []
         self.redo_stack = []
+        self.skip_wait_event = threading.Event()
         
         self._setup_styles()
         self._build_ui()
@@ -626,6 +630,8 @@ class App(tk.Tk):
         tk.Button(action_row, text="🔄 SYNC", command=self._sync_all, bg="#334155", fg=TEXT, width=15).pack(side="left", padx=(0, 10))
         self.btn_run = tk.Button(action_row, text="🚀 START NITRO FILL", command=self._run_automation, bg=SUCCESS, fg="#fff", state="disabled")
         self.btn_run.pack(side="left", fill="x", expand=True)
+        self.btn_skip = tk.Button(action_row, text="⏭️ SKIP WAIT", command=self._skip_wait, bg=ACCENT, fg=BG, state="disabled", width=15)
+        self.btn_skip.pack(side="left", padx=(10, 0))
         
         self.auto_log = scrolledtext.ScrolledText(frame, bg="#000", fg="#39ff14", height=6, font=("Consolas", 9))
         self.auto_log.pack(fill="both", expand=True)
@@ -881,6 +887,10 @@ class App(tk.Tk):
     def _log(self, m):
         self.after(0, lambda: self.auto_log.insert(tk.END, f"> {m}\n") or self.auto_log.see(tk.END))
 
+    def _skip_wait(self):
+        self.skip_wait_event.set()
+        self._log("⏭️ SKIP WAIT clicked! Resuming automation instantly...")
+
     def _run_automation(self):
         user, pwd, prof = self.e_user.get(), self.e_pass.get(), self.e_prof.get()
         self.cfg["username"], self.cfg["password"], self.cfg["profile"] = user, pwd, prof
@@ -890,15 +900,18 @@ class App(tk.Tk):
         
         def worker():
             try:
+                self.skip_wait_event.clear()
+                self.after(0, lambda: self.btn_skip.config(state="normal"))
                 active = [(fid, rows) for fid, rows in self.all_data.items() if fid in self.all_urls]
                 with ThreadPoolExecutor(max_workers=2) as ex:
-                    futures = [ex.submit(fill_form_logic, fid, self.all_urls[fid], user, pwd, rows, self._log, i+1, prof, fill_settings) for i, (fid, rows) in enumerate(active)]
+                    futures = [ex.submit(fill_form_logic, fid, self.all_urls[fid], user, pwd, rows, self._log, i+1, prof, fill_settings, self.skip_wait_event) for i, (fid, rows) in enumerate(active)]
                     for f in futures:
                         f.result()
             except Exception as e:
                 self._log(f"❌ Error: {e}")
             finally:
                 self.after(0, lambda: self.btn_run.config(state="normal"))
+                self.after(0, lambda: self.btn_skip.config(state="disabled"))
                 self._log("🏁 PROCESS FINISHED.")
         self.btn_run.config(state="disabled")
         threading.Thread(target=worker, daemon=True).start()
