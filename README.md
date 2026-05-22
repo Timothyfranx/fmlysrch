@@ -92,9 +92,9 @@ python3 app.py
 
 ---
 
-## 🛠 JSON Utility Tools (Fixing Broken Data)
+## 🛠 JSON Utility Tools (Fixing & Aligning Data)
 
-If you have a JSON file that is "broken" or has syntax errors, I have included two special scripts to help:
+If you have a JSON file that has syntax errors or needs formatting, or you want to align pedigree death places, we have included powerful scripts to help:
 
 ### 1. Repair Broken JSON (`json_repair.py`)
 If your JSON file has extra brackets, missing commas, or was copied incorrectly, run this to surgically recover the data:
@@ -108,7 +108,26 @@ If your JSON is valid but looks messy and hard to read, run this to make it pret
 python3 json_formatter.py 0727.json
 ```
 
+### 3. Align Death Places (`death_place_to_birth_place.py`)
+For deceased records (where `living` is `"No"`), this script copies the `birth_location` directly to the `death_location` field so that they are perfectly aligned:
+```bash
+python3 death_place_to_birth_place.py 0727.json
+```
+
 ---
+
+## 🔍 Interactive Table Zoom Control
+
+To view all genealogy data fields simultaneously on any screen size, you can zoom the data table in and out:
+- **Visual Buttons**: Use the `➖`, `🔄`, and `➕` buttons in the **TABLE ZOOM** section of the sidebar to dynamically change scale.
+- **Keyboard Shortcuts**:
+  - `Ctrl` + `+` or `Ctrl` + `=` to Zoom In
+  - `Ctrl` + `-` to Zoom Out
+  - `Ctrl` + `0` to Reset Zoom to 100%
+- **Mouse Scroll**: Hold `Ctrl` and scroll your mouse wheel over the table to zoom dynamically.
+
+---
+
 
 ## ⚠️ Security & Troubleshooting
 

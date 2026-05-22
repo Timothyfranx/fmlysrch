@@ -12,6 +12,8 @@ from playwright.sync_api import sync_playwright
 from json_repair import repair_json
 from json_formatter import format_json
 from clean_genealogy import clean_genealogy_json
+from death_place_to_birth_place import death_place_to_birth_place_json
+
 
 # --- CONFIG & STYLING ---
 CONFIG_FILE = "config.json"
@@ -452,6 +454,9 @@ class App(tk.Tk):
         self.undo_stack = []
         self.redo_stack = []
         self.skip_wait_event = threading.Event()
+        self.zoom_size = 10
+        self.lbl_zoom = None
+
         
         self._setup_styles()
         self._build_ui()
@@ -554,6 +559,51 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Failed to clean genealogy data:\n{e}")
 
+    def _run_death_place_to_birth_place(self):
+        if not self.current_fid:
+            messagebox.showwarning("No Selection", "Please select a form JSON to align death places.")
+            return
+            
+        file_path = f"{self.current_fid}.json"
+        if not os.path.exists(file_path):
+            messagebox.showerror("Error", f"File '{file_path}' not found.")
+            return
+        
+        choice = messagebox.askyesnocancel(
+            "Align Death Places",
+            f"Aligning death places to birth places/locations in '{file_path}'.\n\n"
+            "Do you want to overwrite the current file directly?\n\n"
+            "- Yes: Overwrite the active file\n"
+            "- No: Create a clean copy named like '*_cleaned.json'\n"
+            "- Cancel: Abort alignment"
+        )
+        
+        if choice is None:
+            return
+            
+        overwrite = choice
+        try:
+            stats = death_place_to_birth_place_json(file_path, overwrite=overwrite)
+            self._load_local_jsons()
+            
+            if stats and stats.get("success"):
+                fixed_count = stats.get("fixed_count", 0)
+                total_deceased = stats.get("total_deceased", 0)
+                out_path = stats.get("output_path", file_path)
+                
+                msg = (
+                    f"Death places aligned successfully!\n\n"
+                    f"• Deceased individuals aligned: {fixed_count} out of {total_deceased}\n"
+                    f"• Output file: {os.path.basename(out_path)}"
+                )
+                self._log(f"📍 Aligned death places in '{file_path}' (fixed: {fixed_count}/{total_deceased})")
+                messagebox.showinfo("Success", msg)
+            else:
+                err_msg = stats.get("error", "Unknown error occurred.") if stats else "Unknown error."
+                messagebox.showerror("Error", f"Failed to align death places:\n{err_msg}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to align death places:\n{e}")
+
     def _setup_styles(self):
         style = ttk.Style()
         style.theme_use("clam")
@@ -563,6 +613,61 @@ class App(tk.Tk):
         style.configure("Treeview", background=CARD, foreground=TEXT, fieldbackground=CARD, rowheight=28, borderwidth=0, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", background="#0f172a", foreground=ACCENT, font=("Segoe UI", 10, "bold"))
         style.map("Treeview", background=[("selected", "#334155")])
+
+    def _zoom_in(self, event=None):
+        self._set_zoom(self.zoom_size + 1)
+
+    def _zoom_out(self, event=None):
+        self._set_zoom(self.zoom_size - 1)
+
+    def _zoom_reset(self, event=None):
+        self._set_zoom(10)
+
+    def _set_zoom(self, size):
+        self.zoom_size = max(6, min(20, size))
+        
+        # Update styling dynamically
+        style = ttk.Style()
+        row_height = int(28 * (self.zoom_size / 10.0))
+        style.configure("Treeview", font=("Segoe UI", self.zoom_size), rowheight=row_height)
+        style.configure("Treeview.Heading", font=("Segoe UI", self.zoom_size, "bold"))
+        
+        # Scale columns dynamically
+        scale = self.zoom_size / 10.0
+        widths = {
+            "RIN": 60,
+            "Relation": 180,
+            "Given Names": 180,
+            "Family Names": 150,
+            "Birth Location": 250,
+            "Death Location": 250,
+            "Sex": 80,
+            "Living": 80,
+            "Birth Year": 100,
+            "Death Year": 100
+        }
+        for c in COLS:
+            self.tree.column(c, width=int(widths.get(c, 100) * scale))
+        
+        if hasattr(self, 'lbl_zoom') and self.lbl_zoom:
+            self.lbl_zoom.config(text=f"{int(self.zoom_size * 10)}%")
+        
+        self._log(f"🔍 Zoom level set to {int(self.zoom_size * 10)}% (Font: {self.zoom_size}px)")
+
+    def _on_mousewheel_zoom(self, event):
+        if event.delta > 0:
+            self._zoom_in()
+        elif event.delta < 0:
+            self._zoom_out()
+        return "break"
+
+    def _on_mousewheel_zoom_linux_up(self, event):
+        self._zoom_in()
+        return "break"
+
+    def _on_mousewheel_zoom_linux_down(self, event):
+        self._zoom_out()
+        return "break"
 
     def _load_local_jsons(self):
         json_files = [f for f in os.listdir('.') if f.endswith('.json') and f != CONFIG_FILE]
@@ -684,7 +789,16 @@ class App(tk.Tk):
         tk.Button(sidebar, text="🛠️ Repair JSON", command=self._run_repair_json, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 9), pady=6).pack(fill="x", padx=15, pady=3)
         tk.Button(sidebar, text="📝 Format JSON", command=self._run_format_json, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 9), pady=6).pack(fill="x", padx=15, pady=3)
         tk.Button(sidebar, text="🧼 Clean Genealogy", command=self._run_clean_genealogy, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 9), pady=6).pack(fill="x", padx=15, pady=3)
-        
+        tk.Button(sidebar, text="📍 Align Death Places", command=self._run_death_place_to_birth_place, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 9), pady=6).pack(fill="x", padx=15, pady=3)
+        tk.Label(sidebar, text="TABLE ZOOM", font=("Segoe UI", 9, "bold"), bg=CARD, fg=ACCENT).pack(pady=(15, 5), padx=20, anchor="w")
+        zoom_frame = tk.Frame(sidebar, bg=CARD)
+        zoom_frame.pack(fill="x", padx=15, pady=3)
+        tk.Button(zoom_frame, text="➖", command=self._zoom_out, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 8), width=3, pady=3).pack(side="left")
+        self.lbl_zoom = tk.Label(zoom_frame, text="100%", bg=CARD, fg=TEXT, font=("Segoe UI", 9), width=8)
+        self.lbl_zoom.pack(side="left", padx=5)
+        tk.Button(zoom_frame, text="➕", command=self._zoom_in, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 8), width=3, pady=3).pack(side="left")
+        tk.Button(zoom_frame, text="🔄", command=self._zoom_reset, bg="#334155", fg=TEXT, borderwidth=0, font=("Segoe UI", 8), width=3, pady=3).pack(side="left", padx=(5, 0))
+
         tk.Frame(sidebar, height=1, bg="#334155").pack(fill="x", padx=15, pady=15)
         tk.Button(sidebar, text="💾 SAVE", command=self._save_to_json, bg=ACCENT, fg=BG, borderwidth=0, font=("Segoe UI", 9, "bold"), pady=10).pack(fill="x", padx=15, pady=3)
         tk.Button(sidebar, text="🔄 RESTART", command=self._restart_app, bg=DANGER, fg="#fff", borderwidth=0, font=("Segoe UI", 8, "bold"), pady=6).pack(fill="x", padx=15, pady=(15, 3))
@@ -726,6 +840,10 @@ class App(tk.Tk):
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
         self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<Control-MouseWheel>", self._on_mousewheel_zoom)
+        self.tree.bind("<Control-Button-4>", self._on_mousewheel_zoom_linux_up)
+        self.tree.bind("<Control-Button-5>", self._on_mousewheel_zoom_linux_down)
+
 
     def _bind_shortcuts(self):
         self.bind_all("<Control-z>", lambda e: self._undo())
@@ -733,6 +851,11 @@ class App(tk.Tk):
         self.bind_all("<Control-s>", lambda e: self._save_to_json())
         self.bind_all("<Control-f>", lambda e: self.e_search.focus_set())
         self.bind_all("<Control-r>", lambda e: self._reload_jsons())
+        self.bind_all("<Control-plus>", lambda e: self._zoom_in())
+        self.bind_all("<Control-equal>", lambda e: self._zoom_in())
+        self.bind_all("<Control-minus>", lambda e: self._zoom_out())
+        self.bind_all("<Control-Key-0>", lambda e: self._zoom_reset())
+
 
     def _push_undo(self):
         self.undo_stack.append(copy.deepcopy(self.all_data))
