@@ -675,12 +675,15 @@ class App(tk.Tk):
         for jf in json_files:
             fid = jf[:-5]
             try:
-                with open(jf, "r") as f:
+                with open(jf, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.all_data[fid] = json_to_rows(data)
                 fids.append(fid)
-            except:
-                pass
+            except Exception as e:
+                # Still add to fids so the user can select and repair it!
+                self.all_data[fid] = []
+                fids.append(fid)
+                self._log(f"⚠️ Warning: Could not parse '{jf}' (corrupt/dirty). Added to list so you can use 'Repair JSON'. Error: {str(e)[:50]}")
         if fids:
             sorted_fids = sorted(fids)
             self.form_sel['values'] = sorted_fids
