@@ -889,7 +889,22 @@ class App(tk.Tk):
         query = self.e_search.get().lower()
         for i in self.tree.get_children():
             self.tree.delete(i)
-        data = self.all_data[self.current_fid]
+        
+        data = self.all_data.get(self.current_fid)
+        if data is None:
+            # Fallback: attempt to load the file from disk if it exists
+            file_path = f"{self.current_fid}.json"
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    self.all_data[self.current_fid] = json_to_rows(loaded)
+                    data = self.all_data[self.current_fid]
+                except:
+                    pass
+            if data is None:
+                return
+                
         for row in data:
             if not query or any(query in str(cell).lower() for cell in row):
                 self.tree.insert("", tk.END, values=row)
@@ -977,6 +992,10 @@ class App(tk.Tk):
     def _save_to_json(self):
         if not self.current_fid:
             return
+        if self.current_fid not in self.all_data:
+            self._refresh_table()
+            if self.current_fid not in self.all_data:
+                return
         data = []
         for r in self.all_data[self.current_fid]:
             row = {"rin": int(r[0]) if r[0].isdigit() else r[0], "relation": r[1], "sex": r[2], "living": r[3], "given_names": r[4], "family_names": r[5], "birth_year": int(r[6]) if r[6].isdigit() else r[6], "birth_location": r[7], "death_year": int(r[8]) if r[8].isdigit() else r[8], "death_location": r[9]}
