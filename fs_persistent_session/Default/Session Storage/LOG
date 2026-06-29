@@ -1,6 +1,0 @@
-2026/04/23-15:07:05.553 1be3 Reusing MANIFEST /home/replytim/Desktop/power/fs_persistent_session/Default/Session Storage/MANIFEST-000001
-2026/04/23-15:07:05.555 1be3 Recovering log #4
-2026/04/23-15:07:05.574 1be3 Reusing old log /home/replytim/Desktop/power/fs_persistent_session/Default/Session Storage/000004.log 
-2026/04/23-15:10:05.577 1be3 Level-0 table #8: started
-2026/04/23-15:10:05.618 1be3 Level-0 table #8: 11746 bytes OK
-2026/04/23-15:10:05.657 1be3 Delete type=0 #4

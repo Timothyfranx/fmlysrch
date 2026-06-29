@@ -61,7 +61,8 @@ def json_to_rows(data):
 
 # --- AUTOMATION LOGIC ---
 
-def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, profile_id, fill_settings, skip_wait_event=None):
+def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, profile_id, fill_settings, skip_wait_event=None,
+                    automation_paused=None, automation_stop=None, automation_step=None, row_status_cb=None):
     def log(msg): status_cb(f"[{fid}] {msg}")
 
     try:
@@ -212,6 +213,7 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
                         page_modified = False
                         
                         for inp in anchors:
+                            rin = None
                             try:
                                 container = inp.locator('xpath=ancestor::div[role="row"][1] | ancestor::tr[1] | ancestor::div[contains(@class,"row")][1]').first
                                 if not container.count():
@@ -220,7 +222,6 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
                                 combined_text = container.text_content()
                                 nums = re.findall(r'\d+', combined_text)
                                 
-                                rin = None
                                 for n in nums:
                                     if n in data_map and n not in filled_rins:
                                         rin = n
@@ -228,6 +229,30 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
                                 
                                 if not rin:
                                     continue
+
+                                # Check if stop requested
+                                if automation_stop and automation_stop.is_set():
+                                    log("🛑 Stop requested. Aborting fill...")
+                                    return
+                                
+                                # Check if paused
+                                if automation_paused and not automation_paused.is_set():
+                                    log("⏸️ Automation paused. Waiting...")
+                                    while not automation_paused.is_set():
+                                        if automation_stop and automation_stop.is_set():
+                                            log("🛑 Stop requested while paused. Aborting...")
+                                            return
+                                        time.sleep(0.2)
+                                    log("▶️ Automation resumed.")
+
+                                # Check if step requested
+                                if automation_step and automation_step.is_set():
+                                    automation_step.clear()
+                                    if automation_paused:
+                                        automation_paused.clear()
+
+                                if row_status_cb:
+                                    row_status_cb(rin, "filling")
 
                                 r_data = data_map[rin]
                                 _, rel, sex, living, given, family, b_yr, b_loc, d_yr, d_loc = r_data
@@ -367,8 +392,12 @@ def fill_form_logic(fid, url, username, password, rows, status_cb, worker_idx, p
                                     except Exception as e:
                                         log(f"⚠️ Death fill failed for {rin}: {str(e)[:40]}")
                                 filled_rins.add(rin)
-                            except:
-                                pass
+                                if row_status_cb:
+                                    row_status_cb(rin, "success")
+                            except Exception as e:
+                                if rin and row_status_cb:
+                                    row_status_cb(rin, "error")
+                                log(f"⚠️ Failed to fill RIN {rin}: {e}")
 
                 # SAVE
                 if page_modified:
@@ -454,6 +483,10 @@ class App(tk.Tk):
         self.undo_stack = []
         self.redo_stack = []
         self.skip_wait_event = threading.Event()
+        self.automation_paused = threading.Event()
+        self.automation_paused.set()
+        self.automation_stop = threading.Event()
+        self.automation_step = threading.Event()
         self.zoom_size = 10
         self.lbl_zoom = None
 
@@ -764,6 +797,21 @@ class App(tk.Tk):
         self.btn_run.pack(side="left", fill="x", expand=True)
         self.btn_skip = tk.Button(action_row, text="⏭️ SKIP WAIT", command=self._skip_wait, bg=ACCENT, fg=BG, state="disabled", width=15)
         self.btn_skip.pack(side="left", padx=(10, 0))
+
+        self.ctrl_row = tk.Frame(frame, bg=BG)
+        self.ctrl_row.pack(fill="x", pady=5)
+        
+        self.btn_pause = tk.Button(self.ctrl_row, text="⏸️ PAUSE", command=self._pause_automation, bg=WARN, fg=BG, state="disabled", width=12, font=("Segoe UI", 9, "bold"))
+        self.btn_pause.pack(side="left", padx=2)
+        
+        self.btn_resume = tk.Button(self.ctrl_row, text="▶️ RESUME", command=self._resume_automation, bg=SUCCESS, fg="#fff", state="disabled", width=12, font=("Segoe UI", 9, "bold"))
+        self.btn_resume.pack(side="left", padx=2)
+        
+        self.btn_step = tk.Button(self.ctrl_row, text="⏭️ STEP FILL", command=self._step_automation, bg=ACCENT, fg=BG, state="disabled", width=12, font=("Segoe UI", 9, "bold"))
+        self.btn_step.pack(side="left", padx=2)
+        
+        self.btn_stop = tk.Button(self.ctrl_row, text="🛑 STOP", command=self._stop_automation, bg=DANGER, fg="#fff", state="disabled", width=12, font=("Segoe UI", 9, "bold"))
+        self.btn_stop.pack(side="left", padx=2)
         
         self.auto_log = scrolledtext.ScrolledText(frame, bg="#000", fg="#39ff14", height=6, font=("Consolas", 9))
         self.auto_log.pack(fill="both", expand=True)
@@ -815,6 +863,9 @@ class App(tk.Tk):
         tree_frame.pack(fill="both", expand=True, pady=(0, 20))
         
         self.tree = ttk.Treeview(tree_frame, columns=COLS, show="headings", selectmode="extended")
+        self.tree.tag_configure("filling", background="#f59e0b", foreground="#0f172a")
+        self.tree.tag_configure("success", background="#10b981", foreground="#ffffff")
+        self.tree.tag_configure("error", background="#ef4444", foreground="#ffffff")
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -834,7 +885,7 @@ class App(tk.Tk):
         }
         
         for c in COLS:
-            self.tree.heading(c, text=c)
+            self.tree.heading(c, text=c, command=lambda col=c: self._sort_column(col, False))
             self.tree.column(c, width=widths.get(c, 100), minwidth=50)
         
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -842,6 +893,7 @@ class App(tk.Tk):
         hsb.grid(row=1, column=0, sticky="ew")
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
+        self.tree.bind("<Button-1>", self._on_tree_click)
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Control-MouseWheel>", self._on_mousewheel_zoom)
         self.tree.bind("<Control-Button-4>", self._on_mousewheel_zoom_linux_up)
@@ -880,6 +932,23 @@ class App(tk.Tk):
             self._refresh_table()
             self._log("↪️ Redo")
 
+    def _sort_column(self, col, reverse):
+        col_idx = COLS.index(col)
+        if self.current_fid in self.all_data:
+            def get_sort_key(row):
+                val = row[col_idx]
+                if col in ("RIN", "Birth Year", "Death Year"):
+                    try:
+                        return (0, int(val))
+                    except:
+                        return (1, val)
+                return (1, str(val).lower())
+            
+            self._push_undo()
+            self.all_data[self.current_fid].sort(key=get_sort_key, reverse=reverse)
+            self._refresh_table()
+            self.tree.heading(col, command=lambda c=col: self._sort_column(c, not reverse))
+
     def _on_search_change(self, e): 
         if self._search_timer:
             self.after_cancel(self._search_timer)
@@ -910,7 +979,11 @@ class App(tk.Tk):
                 
         for row in data:
             if not query or any(query in str(cell).lower() for cell in row):
-                self.tree.insert("", tk.END, values=row)
+                rin = str(row[0])
+                if rin and not self.tree.exists(rin):
+                    self.tree.insert("", tk.END, iid=rin, values=row)
+                else:
+                    self.tree.insert("", tk.END, values=row)
         self.lbl_stats.config(text=f"{len(self.tree.get_children())} / {len(data)} records")
 
     def _show_find_replace(self):
@@ -944,25 +1017,134 @@ class App(tk.Tk):
             messagebox.showinfo("Done", f"Replaced {changed}")
         tk.Button(diag, text="REPLACE ALL", command=do_rep, bg=ACCENT, fg=BG).pack(pady=20)
 
+    def _save_in_place_edit(self, item, col_idx, value):
+        self._push_undo()
+        vals = list(self.tree.item(item, "values"))
+        vals[col_idx] = value
+        self.tree.item(item, values=vals)
+        rin = vals[0]
+        for i, r in enumerate(self.all_data[self.current_fid]):
+            if r[0] == rin:
+                self.all_data[self.current_fid][i] = vals
+                break
+
+    def _start_in_place_edit(self, item, column):
+        if not item or not column:
+            return
+        
+        # Clean up any existing editor
+        if hasattr(self, "entry_edit") and self.entry_edit:
+            try:
+                self.entry_edit.destroy()
+            except:
+                pass
+            self.entry_edit = None
+
+        col_idx = int(column.replace("#", "")) - 1
+        if col_idx < 0 or col_idx >= len(COLS):
+            return
+
+        self.active_edit_item = item
+        self.active_edit_col_idx = col_idx
+
+        bbox = self.tree.bbox(item, column)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+
+        old = self.tree.item(item, "values")[col_idx]
+
+        # Use a dropdown combobox for Living and Sex columns
+        col_name = COLS[col_idx]
+        if col_name == "Sex":
+            self.entry_edit = ttk.Combobox(self.tree, values=["Male", "Female"], state="readonly")
+            self.entry_edit.set(old)
+        elif col_name == "Living":
+            self.entry_edit = ttk.Combobox(self.tree, values=["Yes", "No"], state="readonly")
+            self.entry_edit.set(old)
+        else:
+            self.entry_edit = tk.Entry(self.tree, borderwidth=0, highlightthickness=1, highlightcolor=ACCENT, bg=CARD, fg=TEXT, insertbackground=TEXT)
+            self.entry_edit.insert(0, old)
+            self.entry_edit.select_range(0, tk.END)
+
+        self.entry_edit.place(x=x, y=y, width=w, height=h)
+        self.entry_edit.focus_set()
+
+        # Bind events
+        def save_and_close(event=None):
+            val = self.entry_edit.get()
+            if val != old:
+                self._save_in_place_edit(item, col_idx, val)
+            cleanup()
+
+        def cleanup():
+            if hasattr(self, "entry_edit") and self.entry_edit:
+                try:
+                    self.entry_edit.destroy()
+                except:
+                    pass
+                self.entry_edit = None
+            self.active_edit_item = None
+            self.active_edit_col_idx = None
+
+        def cancel(event=None):
+            cleanup()
+
+        def on_tab(event):
+            val = self.entry_edit.get()
+            if val != old:
+                self._save_in_place_edit(item, col_idx, val)
+            
+            # Go to next column
+            next_col_idx = (col_idx + 1) % len(COLS)
+            next_col = f"#{next_col_idx + 1}"
+            cleanup()
+            
+            self.after(10, lambda: self._start_in_place_edit(item, next_col))
+            return "break"
+
+        def on_shift_tab(event):
+            val = self.entry_edit.get()
+            if val != old:
+                self._save_in_place_edit(item, col_idx, val)
+            
+            # Go to prev column
+            prev_col_idx = (col_idx - 1) % len(COLS)
+            prev_col = f"#{prev_col_idx + 1}"
+            cleanup()
+            
+            self.after(10, lambda: self._start_in_place_edit(item, prev_col))
+            return "break"
+
+        if isinstance(self.entry_edit, ttk.Combobox):
+            self.entry_edit.bind("<<ComboboxSelected>>", save_and_close)
+        else:
+            self.entry_edit.bind("<FocusOut>", save_and_close)
+        
+        self.entry_edit.bind("<Return>", save_and_close)
+        self.entry_edit.bind("<Escape>", cancel)
+        self.entry_edit.bind("<Tab>", on_tab)
+        self.entry_edit.bind("<Shift-Tab>", on_shift_tab)
+
+    def _on_tree_click(self, event):
+        if hasattr(self, "entry_edit") and self.entry_edit:
+            try:
+                if hasattr(self, "active_edit_item") and hasattr(self, "active_edit_col_idx") and self.active_edit_item:
+                    val = self.entry_edit.get()
+                    self._save_in_place_edit(self.active_edit_item, self.active_edit_col_idx, val)
+            except:
+                pass
+            try:
+                self.entry_edit.destroy()
+            except:
+                pass
+            self.entry_edit = None
+
     def _on_double_click(self, event):
         item = self.tree.identify_row(event.y)
-        col = self.tree.identify_column(event.x)
-        if not item or not col:
-            return
-        idx_str = col.replace("#", "")
-        idx = int(idx_str) - 1
-        old = self.tree.item(item, "values")[idx]
-        val = simpledialog.askstring("Edit", "Update:", initialvalue=old)
-        if val is not None:
-            self._push_undo()
-            vals = list(self.tree.item(item, "values"))
-            vals[idx] = val
-            self.tree.item(item, values=vals)
-            rin = vals[0]
-            for i, r in enumerate(self.all_data[self.current_fid]):
-                if r[0] == rin:
-                    self.all_data[self.current_fid][i] = vals
-                    break
+        column = self.tree.identify_column(event.x)
+        if item and column:
+            self._start_in_place_edit(item, column)
 
     def _bulk_edit(self):
         selected = self.tree.selection()
@@ -1080,6 +1262,47 @@ class App(tk.Tk):
         self.skip_wait_event.set()
         self._log("⏭️ SKIP WAIT clicked! Resuming automation instantly...")
 
+    def update_rin_status(self, fid, rin, status):
+        def run_gui_update():
+            if self.current_fid == fid:
+                if self.tree.exists(rin):
+                    self.tree.item(rin, tags=(status,))
+                    if status == "filling":
+                        self.tree.see(rin)
+                        self.tree.selection_set(rin)
+        self.after(0, run_gui_update)
+
+    def _pause_automation(self):
+        self.automation_paused.clear()
+        self._log("⏸️ PAUSE requested...")
+        self.btn_pause.config(state="disabled")
+        self.btn_resume.config(state="normal")
+        self.btn_step.config(state="normal")
+
+    def _resume_automation(self):
+        self.automation_paused.set()
+        self._log("▶️ RESUME requested...")
+        self.btn_pause.config(state="normal")
+        self.btn_resume.config(state="disabled")
+        self.btn_step.config(state="disabled")
+
+    def _step_automation(self):
+        self.automation_step.set()
+        self.automation_paused.set()
+        self._log("⏭️ STEP requested...")
+        self.btn_pause.config(state="disabled")
+        self.btn_resume.config(state="normal")
+        self.btn_step.config(state="normal")
+
+    def _stop_automation(self):
+        self.automation_stop.set()
+        self.automation_paused.set()  # Release pause if waiting
+        self._log("🛑 STOP requested...")
+        self.btn_pause.config(state="disabled")
+        self.btn_resume.config(state="disabled")
+        self.btn_step.config(state="disabled")
+        self.btn_stop.config(state="disabled")
+
     def _run_automation(self):
         user, pwd, prof = self.e_user.get(), self.e_pass.get(), self.e_prof.get()
         self.cfg["username"], self.cfg["password"], self.cfg["profile"] = user, pwd, prof
@@ -1087,22 +1310,51 @@ class App(tk.Tk):
         
         fill_settings = {k: v.get() for k, v in self.fill_vars.items()}
         
+        self.automation_paused.set()
+        self.automation_stop.clear()
+        self.automation_step.clear()
+        
+        # Reset row tags in GUI before start
+        for item in self.tree.get_children():
+            self.tree.item(item, tags=())
+
+        def update_buttons_start():
+            self.btn_run.config(state="disabled")
+            self.btn_skip.config(state="normal")
+            self.btn_pause.config(state="normal")
+            self.btn_resume.config(state="disabled")
+            self.btn_step.config(state="disabled")
+            self.btn_stop.config(state="normal")
+
+        def update_buttons_end():
+            self.btn_run.config(state="normal")
+            self.btn_skip.config(state="disabled")
+            self.btn_pause.config(state="disabled")
+            self.btn_resume.config(state="disabled")
+            self.btn_step.config(state="disabled")
+            self.btn_stop.config(state="disabled")
+
         def worker():
             try:
-                self.skip_wait_event.clear()
-                self.after(0, lambda: self.btn_skip.config(state="normal"))
+                self.after(0, update_buttons_start)
                 active = [(fid, rows) for fid, rows in self.all_data.items() if fid in self.all_urls]
                 with ThreadPoolExecutor(max_workers=2) as ex:
-                    futures = [ex.submit(fill_form_logic, fid, self.all_urls[fid], user, pwd, rows, self._log, i+1, prof, fill_settings, self.skip_wait_event) for i, (fid, rows) in enumerate(active)]
+                    futures = [
+                        ex.submit(
+                            fill_form_logic, fid, self.all_urls[fid], user, pwd, rows, self._log, i+1, prof, fill_settings, 
+                            self.skip_wait_event, self.automation_paused, self.automation_stop, self.automation_step, 
+                            lambda rin, status, f_id=fid: self.update_rin_status(f_id, rin, status)
+                        ) 
+                        for i, (fid, rows) in enumerate(active)
+                    ]
                     for f in futures:
                         f.result()
             except Exception as e:
                 self._log(f"❌ Error: {e}")
             finally:
-                self.after(0, lambda: self.btn_run.config(state="normal"))
-                self.after(0, lambda: self.btn_skip.config(state="disabled"))
+                self.after(0, update_buttons_end)
                 self._log("🏁 PROCESS FINISHED.")
-        self.btn_run.config(state="disabled")
+        
         threading.Thread(target=worker, daemon=True).start()
 
 if __name__ == "__main__":
